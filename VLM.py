@@ -70,10 +70,6 @@ def collate_vlm_inputs(vlm_inputs: List[Dict[str, torch.Tensor]]) -> Dict[str, t
     }
 
 
-#    원본: models/motus.py:298 UndModule.extract_und_features 에서
-#          und_expert.vlm_adapter 를 적용하기 "직전"까지만 구현.
-#    generate() / lm_head 는 사용하지 않고, language_model 을 한 번 forward 해서
-#    마지막 레이어 hidden state 를 그대로 반환한다.
 
 class PretrainedVLM(nn.Module):
     def __init__(self, checkpoint: str = VLM_CHECKPOINT, device: str = "cuda", dtype: torch.dtype = torch.bfloat16):
@@ -127,7 +123,7 @@ class PretrainedVLM(nn.Module):
         inputs_embeds, attention_mask, visual_pos_masks, deepstack_image_embeds, position_ids = \
             self._inputs_to_embeds(vlm_inputs)
 
-        # (5) LLM decoder 를 "한 번" forward (generation 없음, KV cache 없음)
+    
         vlm_output = self.vlm_model.model.language_model(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
@@ -139,7 +135,7 @@ class PretrainedVLM(nn.Module):
             output_hidden_states=True,
             return_dict=True,
         )
-        # (6) 마지막 레이어 hidden state -> Understanding Expert 의 vlm_adapter 입력
+     
         return vlm_output.hidden_states[-1]  # [B, L_vlm, 2048]
 
 
