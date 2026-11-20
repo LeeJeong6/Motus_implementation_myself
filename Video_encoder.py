@@ -91,17 +91,23 @@ def load_patch_embedding(checkpoint: str = WAN_CHECKPOINT) -> nn.Conv3d:
 # ---------------------------------------------------------------------------
 class VideoInput(nn.Module):
     def __init__(self, checkpoint: str = WAN_CHECKPOINT, device: str = "cuda", dtype: torch.dtype = torch.bfloat16,
-                 num_video_frames: int = NUM_VIDEO_FRAMES):
+                 num_video_frames: int = NUM_VIDEO_FRAMES, load_pretrained: bool = True):
         super().__init__()
         self.device = torch.device(device)
         self.dtype = dtype
         self.num_video_frames = num_video_frames
 
-        # Frozen VAE: nn.Module 이 아닌 일반 클래스라 self.parameters() 에 포함되지 않는다 (= 학습/저장 대상 아님)
-        self.vae = Wan2_2_VAE(vae_pth=resolve_wan_file("Wan2.2_VAE.pth", checkpoint), device=self.device)
-
-        # Trainable patch embedding
-        self.patch_embedding = load_patch_embedding(checkpoint).to(self.device, dtype)
+        if load_pretrained:
+            # Frozen VAE: nn.Module 이 아닌 일반 클래스라 self.parameters() 에 포함되지 않는다 (= 학습/저장 대상 아님)
+            self.vae = Wan2_2_VAE(vae_pth=resolve_wan_file("Wan2.2_VAE.pth", checkpoint), device=self.device)
+            # Trainable patch embedding (pretrained WAN 가중치)
+            self.patch_embedding = load_patch_embedding(checkpoint).to(self.device, dtype)
+        else:
+            # 검증용: VAE 없이 latent 를 직접 입력받고, patch embedding 은 랜덤 초기화
+            self.vae = None
+            self.patch_embedding = nn.Conv3d(48, 3072, kernel_size=(1, 2, 2), stride=(1, 2, 2))
+            nn.init.xavier_uniform_(self.patch_embedding.weight.view(3072, -1))  # 원본 WanModel.init_weights
+            self.patch_embedding.to(self.device, dtype)
 
         self.scheduler = FlowMatchSigmas()  # 원본: models/motus.py:650 (video 용 별도 인스턴스, 같은 설정)
 
@@ -143,6 +149,18 @@ class VideoInput(nn.Module):
         clean_latent = self.encode_video(full_video).to(self.dtype)                # [B,48,1+F/4,H/16,W/16]
         condition_latent = self.encode_video(first_frame_norm).to(self.dtype)      # [B,48,1,H/16,W/16]
 
+        # (3) ~ (4)
+        return self.forward_train_from_latent(clean_latent, condition_latent)
+
+    def forward_train_from_latent(self, clean_latent: torch.Tensor, condition_latent: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """
+        VAE 이후 단계만: clean latent [B,48,T',H',W'] + condition latent [B,48,1,H',W']
+        -> 노이즈 섞기 + teacher forcing + patch embedding
+        """
+        B = clean_latent.shape[0]
+        clean_latent = clean_latent.to(self.device, self.dtype)
+        condition_latent = condition_latent.to(self.device, self.dtype)
+
         # (3) Flow-matching noise (샘플마다 σ 1개)
         timestep_id = torch.randint(0, self.scheduler.num_train_timesteps, (B,))
         t_embed = self.scheduler.timesteps[timestep_id].to(self.device, self.dtype)                 # [B] -> AdaLN
@@ -173,7 +191,14 @@ class VideoInput(nn.Module):
         first_frame = first_frame.to(self.device, self.dtype)
         first_frame_norm = (first_frame * 2.0 - 1.0).unsqueeze(2)
         condition_latent = self.encode_video(first_frame_norm).to(self.dtype)      # [B,48,1,H',W']
+        return self.forward_inference_from_latent(condition_latent, video_latent)
 
+    def forward_inference_from_latent(self, condition_latent: torch.Tensor,
+                                      video_latent: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
+        """VAE 이후 단계만: 미래 latent 노이즈 초기화(또는 현재 스텝 latent) + teacher forcing + patch embedding"""
+        condition_latent = condition_latent.to(self.device, self.dtype)
+        if video_latent is not None:
+            video_latent = video_latent.to(self.device, self.dtype).clone()
         if video_latent is None:  # t=1: 미래 latent 는 순수 노이즈
             B, C, _, H, W = condition_latent.shape
             T = 1 + self.num_video_frames // 4
