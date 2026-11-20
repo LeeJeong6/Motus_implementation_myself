@@ -26,3 +26,11 @@ optical flow base representation이라는 말을 쓴다.
 optical flow는 연속된 두 프레임 사이에서 각 픽셀이 얼마나, 어느 방향으로 이동했는지를 나타내는 표현이다.
 
 이 정보를 활용하여 실제 로봇의 관절값을 몰라도 영상에서 움직임 패턴을 추출할 수 있다.
+
+![alt text](./outputs/vae_noise_pixels.png)
+
+위 그림을 보면 이렇게 노이즈가 추가되며 video encoder에 들어가는 것을 볼 수 있고
+
+![alt text](./outputs/vae_noise_latent.png)
+
+이렇게 latent vector로 표현되는 과정을 볼 수 있다.
