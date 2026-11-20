@@ -28,7 +28,7 @@ action token은 미래의 행동임. 즉 k-step 후 로봇이 있어야 할 관�
 
 """
 정리하자면 입려은 [현재 state + 미래 chunk]
-token마다 MLP를 통과하여 출력은 [21,1024]이다.
+token마다(register token은 제외) MLP를 통과하여 출력은 [21,1024]이다.
 여기서 condition은 현재 state이며 generation은 action chunk를 하며
 positional encoding으로 1D sin-cos(덧셈)이 추가되며
 from-scratch로 학습된다.
@@ -142,10 +142,14 @@ class StateActionEncoder(nn.Module):
     def __init__(self, state_dim: int = STATE_DIM, action_dim: int = ACTION_DIM, dim: int = ACTION_EXPERT_DIM,
                  action_chunk_size: int = ACTION_CHUNK_SIZE, num_registers: int = NUM_REGISTERS):
         super().__init__()
+        """
+        state encoder와 action encoder는 의미는 같지만 현재 vs 미래를 표현하는 차이이다.
+        state는 항상 깨끗한 실제 관절값으로 입력 분포가 action과 다르다. 
+        즉 state는 proprioception이고 actioon은 생성 대상인거임. 
+        """
         self.state_encoder = build_mlp('mlp3x_silu', state_dim, dim)
         self.action_encoder = build_mlp('mlp3x_silu', action_dim, dim)
-        # 원본 ActionExpertConfig.chunk_size = action_chunk_size + 1 (state 포함),
-        # 버퍼 길이 = chunk_size + 1 + num_registers = 22  (실제로는 앞 21개만 사용)
+
         max_seq_len = (action_chunk_size + 1) + 1 + num_registers
         self.register_buffer('pos_embedding', get_1d_sincos_pos_embed_from_grid(dim, np.arange(max_seq_len)).unsqueeze(0))
 
