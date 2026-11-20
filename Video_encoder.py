@@ -8,18 +8,18 @@ Frozen VAE가 픽셀을 latent로 압축하고 WAN의 patch embedding이 latent�
 
 """
 먼저 First Frame은 [B,3,H,W] 이다.
-예측한 Video Frame은 [B,F,3,H,W]이다.
+미래 GT Video Frame은 [B,F,3,H,W]이다.
 
 이 둘을 concat한 Full Video는 [B,3,1+F,H,W]이다. # H=384, W=320, F=8
 Full Video는 Wan2.2 VAE encoder에 의해 [B,48,3,24,20]이 된다.
-즉 공간은 16배 압축되는 것이고 시간은 3배 압축되어 channel은 16배 증가하게 된다.
+즉 공간은 16배 압축되는 것이고 시간은 4배(1+8 -> 1+2) 압축되며 channel은 16배 증가하게 된다.
 
-[B,48,3,24,20]에서 0번 frame을 제외하고 나머지에 flow-matching noise를 섞는다.(shape변화 X)
+[B,48,3,24,20]에서 0번 latent frame을 제외하고 나머지에 flow-matching noise를 섞는다.(shape변화 X)
 그 뒤 patch embedding(Conv3d(48->3072, (1,2,2))를 통과하여 최종적으로 [B,360,3072]가 된다.
 """
 
 """
-Wan 2.2 VAE Encoder는 frozen이며 patch embedding은 pretrained WAN모듈을 사용하며 trainable이다.
+Wan 2.2 VAE는 frozen이며 patch embedding은 pretrained WAN모듈을 사용하며 trainable이다.
 """
 
 """
@@ -32,7 +32,7 @@ Wan 2.2 VAE Encoder는 frozen이며 patch embedding은 pretrained WAN모듈을 �
 """
 
 """
-inference때는 미래 프레임이 아예 없으므로 전부 노이즈로 들어가게 되고 학습때만 F만큼 미래 프레임이 GT로 들어가게 되는 것이다.
+inference때는 미래 프레임이 아예 없으므로 미래 프레임은 전부 노이즈로 들어가게 되고 학습때만 F만큼 미래 프레임이 GT로 들어가게 되는 것이다.
 """
 
 
